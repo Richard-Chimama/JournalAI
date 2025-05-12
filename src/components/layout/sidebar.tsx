@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -9,6 +10,7 @@ import {
   LightbulbIcon,
   BellIcon,
   BarChart3Icon,
+  MessageCircleIcon, // Added for Chat
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -26,6 +28,7 @@ const navItems = [
   { href: '/journal/new', label: 'New Entry', icon: PlusCircleIcon },
   { href: '/insights', label: 'Insights', icon: LightbulbIcon },
   { href: '/reminders', label: 'Reminders', icon: BellIcon },
+  { href: '/chat', label: 'Chat Coach', icon: MessageCircleIcon }, // New Chat Link
 ];
 
 export default function AppSidebar() {

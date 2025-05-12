@@ -59,13 +59,13 @@ export function AppLayout({ children }: AppLayoutProps) {
     );
   }
 
-  // Authenticated user on a protected path, or if public path logic allows logged-in users (currently does)
+  // Authenticated user on a protected path
   return (
-    <div className="flex min-h-screen">
+    <div className="flex flex-1 min-h-0"> {/* Ensure this div takes remaining height and allows children to flex */}
       <Sidebar variant="sidebar" collapsible="icon">
         <AppSidebar />
       </Sidebar>
-      <SidebarInset className="flex flex-col flex-1">
+      <SidebarInset className="flex flex-col flex-1 min-w-0"> {/* min-w-0 for flex child */}
         <AppHeader />
         <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto">
           {children}
