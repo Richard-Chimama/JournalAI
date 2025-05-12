@@ -33,7 +33,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className="h-full">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased h-full flex flex-col`}>
+      <body 
+        className={`${geistSans.variable} ${geistMono.variable} antialiased h-full flex flex-col`}
+        suppressHydrationWarning // Added to address extension-related hydration issues on body
+      >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
@@ -57,3 +60,4 @@ export default function RootLayout({
     </html>
   );
 }
+
