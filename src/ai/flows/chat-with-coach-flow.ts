@@ -126,12 +126,8 @@ const getRemindersTool = ai.defineTool(
 
 export async function chatWithCoach(input: ChatWithCoachInput): Promise<ChatWithCoachOutput> {
   // Pass allJournalEntries and allReminders into the context for the tools
-  const flowInputWithContext = {
-    ...input,
-    // Tools will access these from the 'context' argument.
-    // Genkit automatically makes flow input available as context to tools.
-  };
-  return chatWithCoachFlow(flowInputWithContext);
+  // Genkit automatically makes flow input available as context to tools.
+  return chatWithCoachFlow(input);
 }
 
 const systemPrompt = `You are Soul Compass, a friendly and insightful personal journal coach. Your goal is to help the user reflect on their thoughts, feelings, and experiences, offer encouragement, and provide gentle advice. You can also remind them of their scheduled habits or events.
@@ -153,7 +149,7 @@ Current User Message:
 {{newMessage}}
 
 Brief summary of all journal entries for general context (use tools for specifics):
-{{#if allJournalEntries}}
+{{#if allJournalEntries.length}}
 {{#each allJournalEntries}}
 - Entry on {{this.date}}: {{truncate this.text 50}} {{#if this.mood}}(Mood: {{this.mood}}){{/if}}
 {{/each}}
@@ -162,7 +158,7 @@ User has no journal entries yet.
 {{/if}}
 
 Brief summary of active reminders for general context (use tools for specifics):
-{{#if (filterReminders allReminders 'active')}}
+{{#if (filterReminders allReminders 'active').length}}
 Active Reminders:
 {{#each (filterReminders allReminders 'active')}}
 - {{this.title}} at {{this.time}} ({{this.frequency}})
@@ -200,12 +196,10 @@ const chatPrompt = ai.definePrompt({
   prompt: systemPrompt,
   tools: [getJournalEntriesTool, getRemindersTool],
   model: 'googleai/gemini-1.5-flash-latest', 
-  // Pass the helpers map directly if Genkit expects promptArgs to be the helpers map
-  // or an object containing helpers that it extracts.
-  // The guideline example `promptArgs: handlebarsOptions` where `handlebarsOptions = { helpers: { ... } }`
-  // suggests `promptArgs` should be `{ helpers: { ... } }`.
-  // We keep this structure.
-  promptArgs: { helpers: customHelpers },
+  promptArgs: { 
+    helpers: customHelpers,
+    knownHelpersOnly: false // Explicitly allow provided helpers
+  },
   config: {
     safetySettings: [ 
       { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -223,6 +217,8 @@ const chatWithCoachFlow = ai.defineFlow(
     outputSchema: ChatWithCoachOutputSchema,
   },
   async (input) => {
+    // The `input` here is what's passed from the `chatWithCoach` wrapper.
+    // This input (including allJournalEntries and allReminders) becomes the `context` for tools.
     const { output } = await chatPrompt(input);
     if (!output) {
         return { response: "I'm sorry, I couldn't generate a response at this moment. Please try again." };
