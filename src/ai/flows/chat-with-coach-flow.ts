@@ -33,7 +33,7 @@ const ReminderSchema = z.object({
   active: z.boolean(),
 });
 
-const ChatMessageSchema = z.object({ // Removed 'export'
+const ChatMessageSchema = z.object({ 
   role: z.enum(['user', 'assistant']),
   content: z.string(),
 });
@@ -153,7 +153,7 @@ Current User Message:
 {{newMessage}}
 
 Brief summary of all journal entries for general context (use tools for specifics):
-{{#if allJournalEntries.length}}
+{{#if allJournalEntries}}
 {{#each allJournalEntries}}
 - Entry on {{this.date}}: {{truncate this.text 50}} {{#if this.mood}}(Mood: {{this.mood}}){{/if}}
 {{/each}}
@@ -162,7 +162,7 @@ User has no journal entries yet.
 {{/if}}
 
 Brief summary of active reminders for general context (use tools for specifics):
-{{#if (filterReminders allReminders 'active').length}}
+{{#if (filterReminders allReminders 'active')}}
 Active Reminders:
 {{#each (filterReminders allReminders 'active')}}
 - {{this.title}} at {{this.time}} ({{this.frequency}})
