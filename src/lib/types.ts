@@ -1,3 +1,4 @@
+
 export interface JournalEntry {
   id: string;
   date: Date;
@@ -31,4 +32,10 @@ export interface ChartDataPoint {
   date: string; // "YYYY-MM-DD" or "Mon", "Tue" etc.
   value: number;
   [key: string]: any; // For multiple lines/bars
+}
+
+export interface AuthFormData {
+  email: string;
+  password?: string; // Password might be optional for some flows in future e.g. OAuth
+  confirmPassword?: string; // For signup forms
 }

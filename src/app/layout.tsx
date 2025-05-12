@@ -1,3 +1,4 @@
+
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
@@ -6,6 +7,8 @@ import { AppLayout } from '@/components/layout/app-layout';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { DataProvider } from '@/context/data-context';
+import { AuthProvider } from '@/context/auth-context';
+import { ThemeProvider } from 'next-themes';
 
 
 const geistSans = Geist({
@@ -31,16 +34,25 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <TooltipProvider>
-          <DataProvider>
-            <SidebarProvider defaultOpen={true}>
-              <AppLayout>
-                {children}
-              </AppLayout>
-              <Toaster />
-            </SidebarProvider>
-          </DataProvider>
-        </TooltipProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            <DataProvider>
+              <AuthProvider>
+                <SidebarProvider defaultOpen={true}>
+                  <AppLayout>
+                    {children}
+                  </AppLayout>
+                  <Toaster />
+                </SidebarProvider>
+              </AuthProvider>
+            </DataProvider>
+          </TooltipProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
