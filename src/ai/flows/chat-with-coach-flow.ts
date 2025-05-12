@@ -172,25 +172,24 @@ User has no active reminders.
 {{/if}}
 `;
 
-// Custom Handlebars helper to truncate text
-const handlebarsOptions = {
-    helpers: {
-      truncate: (str: string, len: number) => {
-        if (str.length > len && str.length > 0) {
-          let new_str = str + " ";
-          new_str = str.substr(0, len);
-          new_str = str.substr(0, new_str.lastIndexOf(" "));
-          new_str = new_str.length > 0 ? new_str : str.substr(0, len);
-          return new_str + "...";
-        }
-        return str;
-      },
-      filterReminders: (reminders: Reminder[], status: 'active' | 'inactive' | 'all') => {
-        if (!reminders) return [];
-        if (status === 'all') return reminders;
-        return reminders.filter(r => r.active === (status === 'active'));
-      }
+// Custom Handlebars helpers
+const customHelpers = {
+  truncate: (str: string, len: number) => {
+    if (!str) return '';
+    if (str.length > len && str.length > 0) {
+      let new_str = str + " ";
+      new_str = str.substring(0, len);
+      new_str = str.substring(0, new_str.lastIndexOf(" "));
+      new_str = new_str.length > 0 ? new_str : str.substring(0, len);
+      return new_str + "...";
     }
+    return str;
+  },
+  filterReminders: (reminders: Reminder[], status: 'active' | 'inactive' | 'all') => {
+    if (!reminders) return [];
+    if (status === 'all') return reminders;
+    return reminders.filter(r => r.active === (status === 'active'));
+  }
 };
 
 
@@ -200,10 +199,15 @@ const chatPrompt = ai.definePrompt({
   output: { schema: ChatWithCoachOutputSchema },
   prompt: systemPrompt,
   tools: [getJournalEntriesTool, getRemindersTool],
-  model: 'googleai/gemini-1.5-flash-latest', // Ensure this model supports tool use
-  promptArgs: handlebarsOptions,
+  model: 'googleai/gemini-1.5-flash-latest', 
+  // Pass the helpers map directly if Genkit expects promptArgs to be the helpers map
+  // or an object containing helpers that it extracts.
+  // The guideline example `promptArgs: handlebarsOptions` where `handlebarsOptions = { helpers: { ... } }`
+  // suggests `promptArgs` should be `{ helpers: { ... } }`.
+  // We keep this structure.
+  promptArgs: { helpers: customHelpers },
   config: {
-    safetySettings: [ // Relax safety settings if needed for journaling content, be cautious
+    safetySettings: [ 
       { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
       { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
       { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE'},
@@ -219,10 +223,6 @@ const chatWithCoachFlow = ai.defineFlow(
     outputSchema: ChatWithCoachOutputSchema,
   },
   async (input) => {
-    // The input 'input' already contains allJournalEntries and allReminders
-    // Genkit will make these available to the tools via their context argument if the tools are defined to accept it,
-    // or if the tools are closures accessing a variable in the flow's scope.
-    // Here, we are passing the full input to the prompt, and tools will get this input as their `context`.
     const { output } = await chatPrompt(input);
     if (!output) {
         return { response: "I'm sorry, I couldn't generate a response at this moment. Please try again." };
