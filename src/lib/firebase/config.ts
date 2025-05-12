@@ -24,3 +24,4 @@ if (getApps().length === 0) {
 auth = getAuth(app);
 
 export { app, auth };
+
