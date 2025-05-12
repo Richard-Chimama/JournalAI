@@ -5,7 +5,7 @@ export interface JournalEntry {
   text: string;
   mood?: Mood; // Optional mood tracking
   voiceNoteUrl?: string; // URL to stored voice note (Data URI)
-  imageUrl?: string; // URL to stored image
+  imageUrl?: string; // URL to stored image (Data URI)
   tags?: string[];
 }
 
@@ -36,6 +36,7 @@ export interface JournalEntryForAI {
   mood?: Mood;
   text: string;
   voiceNoteDataUri?: string; // Base64 data URI for the voice note
+  imageDataUri?: string; // Base64 data URI for the image
 }
 
 export interface ChartDataPoint {

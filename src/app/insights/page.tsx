@@ -36,7 +36,8 @@ export default function InsightsPage() {
       date: entry.date.toISOString(),
       mood: entry.mood,
       text: entry.text,
-      voiceNoteDataUri: entry.voiceNoteUrl, // voiceNoteUrl is already a data URI if present
+      voiceNoteDataUri: entry.voiceNoteUrl, 
+      imageDataUri: entry.imageUrl, // Pass the image data URI if it exists
     }));
 
     try {
@@ -86,7 +87,7 @@ export default function InsightsPage() {
         <CardHeader>
           <CardTitle>Analyze Your Journal</CardTitle>
           <CardDescription>
-            Our AI will process your entries (including voice notes if available) to provide you with valuable insights. This may take a few moments.
+            Our AI will process your entries (including voice notes and images if available) to provide you with valuable insights. This may take a few moments.
           </CardDescription>
         </CardHeader>
         <CardContent>

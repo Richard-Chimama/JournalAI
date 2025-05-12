@@ -2,7 +2,7 @@
 'use server';
 
 /**
- * @fileOverview An AI agent that analyzes journal entries (text and audio) to identify recurring themes, emotions, and potential stressors.
+ * @fileOverview An AI agent that analyzes journal entries (text, audio, and images) to identify recurring themes, emotions, and potential stressors.
  *
  * - analyzeJournalEntries - A function that handles the analysis of journal entries.
  * - AnalyzeJournalEntriesInput - The input type for the analyzeJournalEntries function.
@@ -18,11 +18,12 @@ const JournalEntryForAISchema = z.object({
   mood: z.string().optional().describe("The mood recorded for the entry (e.g., great, good, okay, bad, terrible)."),
   text: z.string().describe("The textual content of the journal entry."),
   voiceNoteDataUri: z.string().optional().describe("A voice note for the entry, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
+  imageDataUri: z.string().optional().describe("An image for the entry, as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
 });
 
 const AnalyzeJournalEntriesInputSchema = z.object({
   journalEntries: z.array(JournalEntryForAISchema)
-    .describe('An array of journal entries to be analyzed. Each entry includes date, optional mood, text, and an optional voice note data URI.'),
+    .describe('An array of journal entries to be analyzed. Each entry includes date, optional mood, text, an optional voice note data URI, and an optional image data URI.'),
 });
 export type AnalyzeJournalEntriesInput = z.infer<typeof AnalyzeJournalEntriesInputSchema>;
 
@@ -36,7 +37,7 @@ const AnalyzeJournalEntriesOutputSchema = z.object({
   stressors: z
     .array(z.string())
     .describe('A list of potential stressors identified across all journal entries.'),
-  summary: z.string().describe('A comprehensive summary of the insights gained from all journal entries (text and audio).'),
+  summary: z.string().describe('A comprehensive summary of the insights gained from all journal entries (text, audio, and images).'),
   recommendations: z
     .string()
     .describe('Recommended actions based on the identified themes, emotions, and stressors from all entries.'),
@@ -54,7 +55,7 @@ const prompt = ai.definePrompt({
   input: {schema: AnalyzeJournalEntriesInputSchema},
   output: {schema: AnalyzeJournalEntriesOutputSchema},
   prompt: `You are an AI assistant designed to analyze a series of journal entries and provide insights into the user's mental state and behaviors.
-The user may provide text entries and accompanying voice notes. Consider both modalities when analyzing.
+The user may provide text entries, accompanying voice notes, and images. Consider all modalities when analyzing.
 
 Analyze the following journal entries:
 {{#each journalEntries}}
@@ -67,17 +68,21 @@ Text:
 Voice Note (listen for tone, emphasis, and content not captured in text):
 {{media url=this.voiceNoteDataUri}}
 {{/if}}
+{{#if this.imageDataUri}}
+Image (analyze for context, objects, scenes, or mood implied by the image):
+{{media url=this.imageDataUri}}
+{{/if}}
 --- End of Entry ---
 {{/each}}
 
-Based on ALL the provided entries (text and audio), identify overall recurring themes, expressed emotions, and potential stressors.
+Based on ALL the provided entries (text, audio, and images), identify overall recurring themes, expressed emotions, and potential stressors.
 Provide a consolidated summary of your findings and recommend holistic actions based on your complete analysis.
 
 Output your findings as a JSON object with the following keys:
 - themes: A list of recurring themes found across all journal entries.
 - emotions: A list of emotions expressed across all journal entries.
 - stressors: A list of potential stressors identified across all journal entries.
-- summary: A comprehensive summary of the insights gained from all journal entries (text and audio).
+- summary: A comprehensive summary of the insights gained from all journal entries (text, audio, and images).
 - recommendations: Recommended actions based on the identified themes, emotions, and stressors from all entries.`,
 });
 
@@ -92,4 +97,3 @@ const analyzeJournalEntriesFlow = ai.defineFlow(
     return output!;
   }
 );
-

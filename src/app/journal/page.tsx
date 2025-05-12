@@ -1,10 +1,11 @@
 
 "use client";
 
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import type { JournalEntry } from "@/lib/types";
-import { PlusCircleIcon, BookOpenTextIcon, ImageOffIcon, MicIcon } from "lucide-react"; // Changed MicOffIcon to MicIcon
+import { PlusCircleIcon, BookOpenTextIcon, ImageIcon, MicIcon } from "lucide-react";
 import Link from "next/link";
 import { useDataContext } from "@/context/data-context";
 
@@ -58,11 +59,22 @@ export default function JournalPage() {
                 <CardTitle>{entry.date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</CardTitle>
                 {entry.mood && <CardDescription>Mood: <span className="font-semibold capitalize">{entry.mood}</span></CardDescription>}
               </CardHeader>
-              <CardContent className="flex-grow">
+              <CardContent className="flex-grow space-y-3">
+                {entry.imageUrl && (
+                  <div className="relative w-full aspect-video rounded-md overflow-hidden">
+                    <Image 
+                      src={entry.imageUrl} 
+                      alt="Journal entry image" 
+                      layout="fill" 
+                      objectFit="cover" 
+                      className="transition-transform duration-300 group-hover:scale-105"
+                      data-ai-hint="journal visual"
+                    />
+                  </div>
+                )}
                 <p className="line-clamp-4 text-sm text-foreground/80">
                   {entry.text}
                 </p>
-                 {/* Display audio player if voice note exists */}
                  {entry.voiceNoteUrl && (
                   <div className="mt-2">
                     <audio controls src={entry.voiceNoteUrl} className="w-full h-10">
@@ -73,8 +85,7 @@ export default function JournalPage() {
               </CardContent>
               <CardFooter className="flex justify-between items-center">
                 <div className="flex gap-2 text-muted-foreground">
-                  {entry.imageUrl && <ImageOffIcon className="h-4 w-4 text-primary" />}
-                  {/* Show MicIcon if voice note exists */}
+                  {entry.imageUrl && <ImageIcon className="h-4 w-4 text-primary" />}
                   {entry.voiceNoteUrl && <MicIcon className="h-4 w-4 text-primary" />} 
                 </div>
                 <Button variant="outline" size="sm" asChild>
@@ -90,4 +101,3 @@ export default function JournalPage() {
     </div>
   );
 }
-

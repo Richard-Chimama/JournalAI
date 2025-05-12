@@ -1,8 +1,9 @@
 
 "use client";
 
-import { useState, type FormEvent, useEffect, useRef } from "react";
+import { useState, type FormEvent, useEffect, useRef, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
+import Image from 'next/image';
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import type { JournalEntry, Mood } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon, RefreshCcwIcon, Trash2Icon, Loader2Icon, AlertTriangleIcon } from "lucide-react";
+import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon, RefreshCcwIcon, Trash2Icon, Loader2Icon, AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { format } from "date-fns";
 import { useDataContext } from "@/context/data-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -28,7 +29,12 @@ export default function NewJournalEntryPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [text, setText] = useState("");
   const [mood, setMood] = useState<Mood | undefined>(undefined);
-  const [image, setImage] = useState<File | null>(null); // Image functionality remains placeholder
+  
+  // Image State
+  const [imageDataUri, setImageDataUri] = useState<string | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+
 
   // Voice Note State
   const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
@@ -46,7 +52,6 @@ export default function NewJournalEntryPage() {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           setHasMicrophonePermission(true);
-          // Stop tracks immediately if only checking permission
           stream.getTracks().forEach(track => track.stop());
         } catch (error) {
           console.error('Error accessing microphone:', error);
@@ -67,7 +72,6 @@ export default function NewJournalEntryPage() {
     };
     getMicrophonePermission();
     
-    // Cleanup function to stop media stream if component unmounts while recording
     return () => {
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
@@ -81,8 +85,8 @@ export default function NewJournalEntryPage() {
       toast({ title: "Microphone permission required", variant: "destructive" });
       return;
     }
-    if (isRecording || recordedAudioUrl) { // Prevent starting if already recording or has a recording
-      handleClearRecording(true); // Clear existing then start
+    if (isRecording || recordedAudioUrl) { 
+      handleClearRecording(true); 
       return;
     }
 
@@ -98,7 +102,7 @@ export default function NewJournalEntryPage() {
 
       mediaRecorderRef.current.onstop = () => {
         setIsProcessingAudio(true);
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Using webm, can change if needed
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); 
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
         reader.onloadend = () => {
@@ -110,7 +114,6 @@ export default function NewJournalEntryPage() {
             setIsProcessingAudio(false);
             toast({title: "Failed to process audio", variant: "destructive"});
         }
-         // Stop media tracks once recording is done
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
         mediaStreamRef.current = null;
       };
@@ -128,7 +131,6 @@ export default function NewJournalEntryPage() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      // Processing and toast for "finished" will be handled in onstop
     }
   };
 
@@ -143,13 +145,37 @@ export default function NewJournalEntryPage() {
     mediaStreamRef.current = null;
 
     if (startNewRecording) {
-        // Timeout to ensure resources are released before trying to start again
         setTimeout(() => startRecording(), 100);
     } else {
         toast({ title: "Recording cleared" });
     }
   };
 
+  const handleImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setIsProcessingImage(true);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImageDataUri(reader.result as string);
+        setIsProcessingImage(false);
+        toast({ title: "Image selected" });
+      };
+      reader.onerror = () => {
+        setIsProcessingImage(false);
+        toast({ title: "Failed to load image", variant: "destructive" });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleClearImage = () => {
+    setImageDataUri(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = ""; // Reset file input
+    }
+    toast({ title: "Image cleared" });
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -168,7 +194,7 @@ export default function NewJournalEntryPage() {
       text,
       mood,
       voiceNoteUrl: recordedAudioUrl || undefined,
-      imageUrl: image ? "mock-image-url.jpg" : undefined, // Image remains placeholder
+      imageUrl: imageDataUri || undefined,
       tags: [], 
     };
 
@@ -178,10 +204,13 @@ export default function NewJournalEntryPage() {
       title: "Journal Entry Saved",
       description: "Your thoughts have been recorded.",
     });
-    // Reset voice note state for next entry
     setRecordedAudioUrl(null); 
     audioChunksRef.current = [];
     setIsRecording(false);
+    setImageDataUri(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
     router.push("/journal");
   };
 
@@ -258,9 +287,8 @@ export default function NewJournalEntryPage() {
               />
             </div>
             
-            {/* Voice Note Section */}
             <div className="space-y-2">
-                <Label>Voice Note</Label>
+                <Label>Voice Note (Optional)</Label>
                 {!hasMicrophonePermission && typeof navigator !== "undefined" && navigator.mediaDevices && (
                      <Alert variant="destructive">
                         <AlertTriangleIcon className="h-4 w-4" />
@@ -312,18 +340,55 @@ export default function NewJournalEntryPage() {
                 )}
             </div>
 
-
-            {/* Image Upload Placeholder */}
-            <div>
-                <Label>Image (Optional)</Label>
-                 <Button type="button" variant="outline" disabled className="w-full mt-1">
-                    <ImagePlusIcon className="mr-2 h-4 w-4" />
-                    Add Image (Coming Soon)
+            <div className="space-y-2">
+              <Label>Image (Optional)</Label>
+              <Input 
+                type="file" 
+                accept="image/*" 
+                ref={imageInputRef}
+                onChange={handleImageChange} 
+                className="hidden" 
+                id="image-upload"
+                disabled={isProcessingImage}
+              />
+              {isProcessingImage && (
+                 <div className="flex items-center space-x-2 text-muted-foreground">
+                    <Loader2Icon className="h-5 w-5 animate-spin" />
+                    <span>Processing image...</span>
+                  </div>
+              )}
+              {imageDataUri && !isProcessingImage && (
+                <div className="relative group">
+                  <Image src={imageDataUri} alt="Selected image preview" width={200} height={200} className="rounded-md object-cover aspect-square" data-ai-hint="journal image"/>
+                  <Button 
+                    type="button" 
+                    variant="destructive" 
+                    size="icon" 
+                    onClick={handleClearImage} 
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Clear image"
+                    disabled={isProcessingImage}
+                  >
+                    <XCircleIcon className="h-5 w-5" />
+                  </Button>
+                </div>
+              )}
+              {!imageDataUri && !isProcessingImage && (
+                <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => imageInputRef.current?.click()} 
+                    className="w-full"
+                    disabled={isProcessingImage}
+                >
+                  <ImagePlusIcon className="mr-2 h-4 w-4" />
+                  Add Image
                 </Button>
+              )}
             </div>
            
             <div className="flex justify-end">
-              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isRecording || isProcessingAudio}>
+              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isRecording || isProcessingAudio || isProcessingImage}>
                 <SaveIcon className="mr-2 h-4 w-4" />
                 Save Entry
               </Button>
@@ -334,4 +399,3 @@ export default function NewJournalEntryPage() {
     </div>
   );
 }
-
