@@ -1,25 +1,26 @@
+
 "use client";
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
-import type { AIInsight } from "@/lib/types";
-import { Loader2Icon, LightbulbIcon, AlertTriangleIcon } from "lucide-react";
+import type { AIInsight, JournalEntryForAI } from "@/lib/types";
+import { Loader2Icon, LightbulbIcon, AlertTriangleIcon, HistoryIcon } from "lucide-react";
 import { analyzeJournalEntriesAction } from "@/app/actions";
 import { useDataContext } from "@/context/data-context";
+import { format, parseISO } from "date-fns";
 
 export default function InsightsPage() {
   const { toast } = useToast();
-  const { journalEntries } = useDataContext();
-  const [insights, setInsights] = useState<AIInsight | null>(null);
+  const { journalEntries, insightsHistory, addInsightToHistory } = useDataContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleAnalyzeEntries = async () => {
     setIsLoading(true);
     setError(null);
-    setInsights(null);
 
     if (journalEntries.length === 0) {
       toast({
@@ -31,16 +32,25 @@ export default function InsightsPage() {
       return;
     }
 
-    // Concatenate journal entries text for analysis
-    const entriesText = journalEntries.map(entry => `Date: ${entry.date.toISOString().split('T')[0]}\nMood: ${entry.mood || 'N/A'}\nEntry:\n${entry.text}\n---`).join("\n\n");
+    const entriesForAI: JournalEntryForAI[] = journalEntries.map(entry => ({
+      date: entry.date.toISOString(),
+      mood: entry.mood,
+      text: entry.text,
+      voiceNoteDataUri: entry.voiceNoteUrl, // voiceNoteUrl is already a data URI if present
+    }));
 
     try {
-      const result = await analyzeJournalEntriesAction({ journalEntries: entriesText });
+      const result = await analyzeJournalEntriesAction({ journalEntries: entriesForAI });
       if (result) {
-        setInsights(result);
+        const newInsight: AIInsight = {
+          ...result,
+          id: Date.now().toString(),
+          generatedAt: new Date().toISOString(),
+        };
+        addInsightToHistory(newInsight);
         toast({
-          title: "Analysis Complete",
-          description: "Insights have been generated from your journal entries.",
+          title: "New Analysis Complete",
+          description: "Fresh insights have been generated and saved.",
         });
       } else {
         throw new Error("AI analysis returned no result.");
@@ -59,6 +69,10 @@ export default function InsightsPage() {
     }
   };
 
+  const sortedInsightsHistory = [...insightsHistory].sort((a, b) => 
+    new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
+  );
+
   return (
     <div className="space-y-6">
       <div>
@@ -72,7 +86,7 @@ export default function InsightsPage() {
         <CardHeader>
           <CardTitle>Analyze Your Journal</CardTitle>
           <CardDescription>
-            Our AI will process your entries to provide you with valuable insights. This may take a few moments.
+            Our AI will process your entries (including voice notes if available) to provide you with valuable insights. This may take a few moments.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -82,7 +96,7 @@ export default function InsightsPage() {
             ) : (
               <LightbulbIcon className="mr-2 h-4 w-4" />
             )}
-            {isLoading ? "Analyzing..." : (journalEntries.length === 0 ? "Add Entries to Analyze" : "Analyze Journal Entries")}
+            {isLoading ? "Analyzing..." : (journalEntries.length === 0 ? "Add Entries to Analyze" : "Generate New Insights")}
           </Button>
         </CardContent>
       </Card>
@@ -101,61 +115,88 @@ export default function InsightsPage() {
         </Card>
       )}
 
-      {insights && (
+      {sortedInsightsHistory.length > 0 && (
         <div className="space-y-6">
-          <Card className="shadow-md">
-            <CardHeader>
-              <CardTitle>Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-foreground/80">{insights.summary}</p>
-            </CardContent>
-          </Card>
+          <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            <HistoryIcon className="h-6 w-6 text-primary" />
+            Insights History
+          </h2>
+          <Accordion type="single" collapsible className="w-full space-y-4">
+            {sortedInsightsHistory.map((insight, index) => (
+              <AccordionItem value={`insight-${insight.id}`} key={insight.id} className="bg-card border rounded-lg shadow-md">
+                <AccordionTrigger className="p-6 hover:no-underline">
+                  <div className="flex flex-col items-start text-left">
+                     <span className="font-semibold text-lg text-primary">
+                        Insight Report - {format(parseISO(insight.generatedAt), "MMMM d, yyyy 'at' h:mm a")}
+                     </span>
+                     <span className="text-sm text-muted-foreground mt-1">
+                        Themes: {insight.themes.slice(0,2).join(', ') || "N/A"}...
+                     </span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="p-6 pt-0">
+                  <div className="space-y-4">
+                    <Card className="shadow-sm">
+                      <CardHeader><CardTitle className="text-xl">Summary</CardTitle></CardHeader>
+                      <CardContent><p className="text-foreground/80">{insight.summary}</p></CardContent>
+                    </Card>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <Card className="shadow-md">
-              <CardHeader><CardTitle>Recurring Themes</CardTitle></CardHeader>
-              <CardContent>
-                {insights.themes.length > 0 ? (
-                  <ul className="list-disc list-inside space-y-1 text-foreground/80">
-                    {insights.themes.map((theme, i) => <li key={i}>{theme}</li>)}
-                  </ul>
-                ) : <p className="text-muted-foreground">No specific themes identified.</p>}
-              </CardContent>
-            </Card>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <Card className="shadow-sm">
+                        <CardHeader><CardTitle className="text-xl">Recurring Themes</CardTitle></CardHeader>
+                        <CardContent>
+                          {insight.themes.length > 0 ? (
+                            <ul className="list-disc list-inside space-y-1 text-foreground/80">
+                              {insight.themes.map((theme, i) => <li key={`theme-${insight.id}-${i}`}>{theme}</li>)}
+                            </ul>
+                          ) : <p className="text-muted-foreground">No specific themes identified.</p>}
+                        </CardContent>
+                      </Card>
 
-            <Card className="shadow-md">
-              <CardHeader><CardTitle>Expressed Emotions</CardTitle></CardHeader>
-              <CardContent>
-                 {insights.emotions.length > 0 ? (
-                  <ul className="list-disc list-inside space-y-1 text-foreground/80">
-                    {insights.emotions.map((emotion, i) => <li key={i}>{emotion}</li>)}
-                  </ul>
-                ) : <p className="text-muted-foreground">No specific emotions identified.</p>}
-              </CardContent>
-            </Card>
+                      <Card className="shadow-sm">
+                        <CardHeader><CardTitle className="text-xl">Expressed Emotions</CardTitle></CardHeader>
+                        <CardContent>
+                          {insight.emotions.length > 0 ? (
+                            <ul className="list-disc list-inside space-y-1 text-foreground/80">
+                              {insight.emotions.map((emotion, i) => <li key={`emotion-${insight.id}-${i}`}>{emotion}</li>)}
+                            </ul>
+                          ) : <p className="text-muted-foreground">No specific emotions identified.</p>}
+                        </CardContent>
+                      </Card>
+                    </div>
+                     <Card className="shadow-sm">
+                        <CardHeader><CardTitle className="text-xl">Potential Stressors</CardTitle></CardHeader>
+                        <CardContent>
+                          {insight.stressors.length > 0 ? (
+                            <ul className="list-disc list-inside space-y-1 text-foreground/80">
+                              {insight.stressors.map((stressor, i) => <li key={`stressor-${insight.id}-${i}`}>{stressor}</li>)}
+                            </ul>
+                          ) : <p className="text-muted-foreground">No specific stressors identified.</p>}
+                        </CardContent>
+                      </Card>
 
-            <Card className="shadow-md">
-              <CardHeader><CardTitle>Potential Stressors</CardTitle></CardHeader>
-              <CardContent>
-                {insights.stressors.length > 0 ? (
-                  <ul className="list-disc list-inside space-y-1 text-foreground/80">
-                    {insights.stressors.map((stressor, i) => <li key={i}>{stressor}</li>)}
-                  </ul>
-                ) : <p className="text-muted-foreground">No specific stressors identified.</p>}
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="shadow-md bg-accent/10 border-accent">
-            <CardHeader>
-              <CardTitle className="text-accent-foreground">Recommended Actions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-accent-foreground/90">{insights.recommendations}</p>
-            </CardContent>
-          </Card>
+                    <Card className="shadow-sm bg-accent/10 border-accent">
+                      <CardHeader><CardTitle className="text-xl text-accent-foreground">Recommended Actions</CardTitle></CardHeader>
+                      <CardContent><p className="text-accent-foreground/90">{insight.recommendations}</p></CardContent>
+                    </Card>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </div>
+      )}
+      {sortedInsightsHistory.length === 0 && !isLoading && !error && (
+        <Card className="shadow-md">
+            <CardHeader>
+                <CardTitle>No Insights Yet</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-muted-foreground">
+                    Click the &quot;Generate New Insights&quot; button above to get your first AI-powered analysis of your journal entries.
+                </p>
+            </CardContent>
+        </Card>
       )}
     </div>
   );

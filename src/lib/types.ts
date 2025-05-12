@@ -4,7 +4,7 @@ export interface JournalEntry {
   date: Date;
   text: string;
   mood?: Mood; // Optional mood tracking
-  voiceNoteUrl?: string; // URL to stored voice note
+  voiceNoteUrl?: string; // URL to stored voice note (Data URI)
   imageUrl?: string; // URL to stored image
   tags?: string[];
 }
@@ -21,11 +21,21 @@ export interface Reminder {
 }
 
 export interface AIInsight {
+  id: string; // Unique ID for the insight report
+  generatedAt: string; // ISO date string for when the insight was generated
   themes: string[];
   emotions: string[];
   stressors: string[];
   summary: string;
   recommendations: string;
+}
+
+// Used for structured input to the AI
+export interface JournalEntryForAI {
+  date: string; // ISO string representation of the date
+  mood?: Mood;
+  text: string;
+  voiceNoteDataUri?: string; // Base64 data URI for the voice note
 }
 
 export interface ChartDataPoint {
@@ -39,3 +49,4 @@ export interface AuthFormData {
   password?: string; // Password might be optional for some flows in future e.g. OAuth
   confirmPassword?: string; // For signup forms
 }
+
