@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -13,9 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import type { JournalEntry, Mood } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon } from "lucide-react";
+import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon, RefreshCcwIcon, Trash2Icon, Loader2Icon, AlertTriangleIcon } from "lucide-react";
 import { format } from "date-fns";
 import { useDataContext } from "@/context/data-context";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 
 export default function NewJournalEntryPage() {
   const router = useRouter();
@@ -25,9 +28,128 @@ export default function NewJournalEntryPage() {
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [text, setText] = useState("");
   const [mood, setMood] = useState<Mood | undefined>(undefined);
-  // Placeholders for voice/image data
-  const [voiceNote, setVoiceNote] = useState<File | null>(null);
-  const [image, setImage] = useState<File | null>(null);
+  const [image, setImage] = useState<File | null>(null); // Image functionality remains placeholder
+
+  // Voice Note State
+  const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [isProcessingAudio, setIsProcessingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+
+  useEffect(() => {
+    const getMicrophonePermission = async () => {
+      if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          setHasMicrophonePermission(true);
+          // Stop tracks immediately if only checking permission
+          stream.getTracks().forEach(track => track.stop());
+        } catch (error) {
+          console.error('Error accessing microphone:', error);
+          setHasMicrophonePermission(false);
+          toast({
+            variant: 'destructive',
+            title: 'Microphone Access Denied',
+            description: 'Please enable microphone permissions in your browser settings to record voice notes.',
+          });
+        }
+      } else {
+         toast({
+            title: "Media Devices Not Supported",
+            description: "Your browser does not support voice recording on this device/browser.",
+            variant: "destructive",
+        });
+      }
+    };
+    getMicrophonePermission();
+    
+    // Cleanup function to stop media stream if component unmounts while recording
+    return () => {
+      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    };
+  }, [toast]);
+
+  const startRecording = async () => {
+    if (!hasMicrophonePermission) {
+      toast({ title: "Microphone permission required", variant: "destructive" });
+      return;
+    }
+    if (isRecording || recordedAudioUrl) { // Prevent starting if already recording or has a recording
+      handleClearRecording(true); // Clear existing then start
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        setIsProcessingAudio(true);
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Using webm, can change if needed
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          setRecordedAudioUrl(reader.result as string);
+          setIsProcessingAudio(false);
+          toast({ title: "Recording finished" });
+        };
+        reader.onerror = () => {
+            setIsProcessingAudio(false);
+            toast({title: "Failed to process audio", variant: "destructive"});
+        }
+         // Stop media tracks once recording is done
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      toast({ title: "Recording started..." });
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+      toast({ title: "Could not start recording", description: (error as Error).message, variant: "destructive" });
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      // Processing and toast for "finished" will be handled in onstop
+    }
+  };
+
+  const handleClearRecording = (startNewRecording = false) => {
+    setRecordedAudioUrl(null);
+    audioChunksRef.current = [];
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+    }
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    mediaStreamRef.current = null;
+
+    if (startNewRecording) {
+        // Timeout to ensure resources are released before trying to start again
+        setTimeout(() => startRecording(), 100);
+    } else {
+        toast({ title: "Recording cleared" });
+    }
+  };
+
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,14 +163,13 @@ export default function NewJournalEntryPage() {
     }
 
     const newEntry: JournalEntry = {
-      id: Date.now().toString(), // Simple ID generation
+      id: Date.now().toString(), 
       date: date || new Date(),
       text,
       mood,
-      // In a real app, voiceNoteUrl and imageUrl would be set after uploading files
-      voiceNoteUrl: voiceNote ? "mock-voice-url.mp3" : undefined,
-      imageUrl: image ? "mock-image-url.jpg" : undefined,
-      tags: [], // Basic tag functionality can be added here
+      voiceNoteUrl: recordedAudioUrl || undefined,
+      imageUrl: image ? "mock-image-url.jpg" : undefined, // Image remains placeholder
+      tags: [], 
     };
 
     addJournalEntry(newEntry);
@@ -57,6 +178,10 @@ export default function NewJournalEntryPage() {
       title: "Journal Entry Saved",
       description: "Your thoughts have been recorded.",
     });
+    // Reset voice note state for next entry
+    setRecordedAudioUrl(null); 
+    audioChunksRef.current = [];
+    setIsRecording(false);
     router.push("/journal");
   };
 
@@ -132,30 +257,73 @@ export default function NewJournalEntryPage() {
                 required
               />
             </div>
+            
+            {/* Voice Note Section */}
+            <div className="space-y-2">
+                <Label>Voice Note</Label>
+                {!hasMicrophonePermission && typeof navigator !== "undefined" && navigator.mediaDevices && (
+                     <Alert variant="destructive">
+                        <AlertTriangleIcon className="h-4 w-4" />
+                        <AlertTitle>Microphone Access Denied</AlertTitle>
+                        <AlertDescription>
+                        Please enable microphone permissions in your browser settings to record voice notes.
+                        </AlertDescription>
+                    </Alert>
+                )}
+                {isProcessingAudio && (
+                    <div className="flex items-center space-x-2 text-muted-foreground">
+                        <Loader2Icon className="h-5 w-5 animate-spin" />
+                        <span>Processing audio...</span>
+                    </div>
+                )}
+                {recordedAudioUrl && !isProcessingAudio && (
+                    <div className="space-y-2">
+                        <audio controls src={recordedAudioUrl} className="w-full"></audio>
+                        <div className="flex space-x-2">
+                            <Button type="button" variant="outline" onClick={() => handleClearRecording(true)} disabled={isRecording || isProcessingAudio}>
+                                <RefreshCcwIcon className="mr-2 h-4 w-4" /> Re-record
+                            </Button>
+                            <Button type="button" variant="destructive" onClick={() => handleClearRecording(false)} disabled={isRecording || isProcessingAudio}>
+                                <Trash2Icon className="mr-2 h-4 w-4" /> Delete
+                            </Button>
+                        </div>
+                    </div>
+                )}
+                {!recordedAudioUrl && !isProcessingAudio && (
+                    <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={isRecording ? stopRecording : startRecording}
+                        disabled={!hasMicrophonePermission || isProcessingAudio}
+                        className="w-full"
+                    >
+                        <MicIcon className="mr-2 h-4 w-4" />
+                        {isRecording ? "Stop Recording" : "Record Voice Note"}
+                    </Button>
+                )}
+                 {isRecording && (
+                    <p className="text-sm text-primary flex items-center">
+                        <span className="relative flex h-3 w-3 mr-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                        </span>
+                        Recording...
+                    </p>
+                )}
+            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Button type="button" variant="outline" disabled className="w-full">
-                <MicIcon className="mr-2 h-4 w-4" />
-                Add Voice Note (Coming Soon)
-              </Button>
-              <Button type="button" variant="outline" disabled className="w-full">
-                <ImagePlusIcon className="mr-2 h-4 w-4" />
-                Add Image (Coming Soon)
-              </Button>
-            </div>
-            {/* Placeholder for file inputs if needed for voice/image
-            <div>
-              <Label htmlFor="voiceNote">Voice Note</Label>
-              <Input type="file" id="voiceNote" accept="audio/*" onChange={(e) => setVoiceNote(e.target.files?.[0] || null)} className="mt-1" />
-            </div>
-            <div>
-              <Label htmlFor="image">Image</Label>
-              <Input type="file" id="image" accept="image/*" onChange={(e) => setImage(e.target.files?.[0] || null)} className="mt-1" />
-            </div>
-            */}
 
+            {/* Image Upload Placeholder */}
+            <div>
+                <Label>Image (Optional)</Label>
+                 <Button type="button" variant="outline" disabled className="w-full mt-1">
+                    <ImagePlusIcon className="mr-2 h-4 w-4" />
+                    Add Image (Coming Soon)
+                </Button>
+            </div>
+           
             <div className="flex justify-end">
-              <Button type="submit" className="bg-primary hover:bg-primary/90">
+              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isRecording || isProcessingAudio}>
                 <SaveIcon className="mr-2 h-4 w-4" />
                 Save Entry
               </Button>
@@ -166,3 +334,4 @@ export default function NewJournalEntryPage() {
     </div>
   );
 }
+
