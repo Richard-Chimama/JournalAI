@@ -6,7 +6,7 @@
  * - chatWithCoach - A function that handles the chat interaction.
  * - ChatWithCoachInput - The input type for the chatWithCoach function.
  * - ChatWithCoachOutput - The return type for the chatWithCoach function.
- * - ChatMessageSchema - Schema for a single chat message.
+ * - ChatMessage - Type for a single chat message.
  */
 
 import {ai} from '@/ai/genkit';
@@ -33,7 +33,7 @@ const ReminderSchema = z.object({
   active: z.boolean(),
 });
 
-export const ChatMessageSchema = z.object({
+const ChatMessageSchema = z.object({ // Removed 'export'
   role: z.enum(['user', 'assistant']),
   content: z.string(),
 });
@@ -230,3 +230,4 @@ const chatWithCoachFlow = ai.defineFlow(
     return output;
   }
 );
+
