@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, type FormEvent, useEffect, useRef, type ChangeEvent } from "react";
@@ -19,12 +18,14 @@ import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon, RefreshCcwIcon, Trash2I
 import { format } from "date-fns";
 import { useDataContext } from "@/context/data-context";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useAuth } from "@/context/auth-context";
 
 
 export default function NewJournalEntryPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { addJournalEntry, isLoadingData } = useDataContext();
+  const { user } = useAuth(); // Get user for initial checks
 
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [text, setText] = useState("");
@@ -57,7 +58,6 @@ export default function NewJournalEntryPage() {
         } catch (error) {
           console.error('Error accessing microphone:', error);
           setHasMicrophonePermission(false);
-          // Toast moved to button click to avoid spamming on load if permission is denied by default
         }
       } else {
          toast({
@@ -78,7 +78,7 @@ export default function NewJournalEntryPage() {
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast]); // imagePreviewUrl and recordedAudioPreviewUrl are intentionally omitted to avoid loop with revokeObjectURL
+  }, [toast]);
 
   const startRecording = async () => {
     if (!hasMicrophonePermission) {
@@ -91,7 +91,7 @@ export default function NewJournalEntryPage() {
     }
 
     try {
-      setIsProcessingAudio(true); // Show processing early
+      setIsProcessingAudio(true); 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
@@ -123,7 +123,7 @@ export default function NewJournalEntryPage() {
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
-      setIsProcessingAudio(false); // Done with initial setup for recording
+      setIsProcessingAudio(false); 
       toast({ title: "Recording started..." });
     } catch (error) {
       console.error("Failed to start recording:", error);
@@ -134,7 +134,7 @@ export default function NewJournalEntryPage() {
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop(); // onstop will handle the rest
+      mediaRecorderRef.current.stop(); 
       setIsRecording(false);
     }
   };
@@ -146,16 +146,15 @@ export default function NewJournalEntryPage() {
     audioChunksRef.current = [];
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-        mediaRecorderRef.current.stop(); // This will trigger onstop, which cleans up the stream
+        mediaRecorderRef.current.stop();
     } else {
       mediaStreamRef.current?.getTracks().forEach(track => track.stop());
       mediaStreamRef.current = null;
     }
     setIsRecording(false);
 
-
     if (startNewRecording) {
-        setTimeout(() => startRecording(), 100); // Small delay to ensure resources are freed
+        setTimeout(() => startRecording(), 100); 
     } else {
         toast({ title: "Recording cleared" });
     }
@@ -165,7 +164,7 @@ export default function NewJournalEntryPage() {
     const file = event.target.files?.[0];
     if (file) {
       setIsProcessingImage(true);
-      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); // Revoke old preview URL
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); 
 
       setSelectedImageFile(file);
       const newPreviewUrl = URL.createObjectURL(file);
@@ -180,7 +179,7 @@ export default function NewJournalEntryPage() {
     setImagePreviewUrl(null);
     setSelectedImageFile(null);
     if (imageInputRef.current) {
-      imageInputRef.current.value = ""; // Reset file input
+      imageInputRef.current.value = ""; 
     }
     toast({ title: "Image cleared" });
   };
@@ -195,8 +194,17 @@ export default function NewJournalEntryPage() {
       });
       return;
     }
+    
+    if (!user) {
+        toast({
+            title: "Authentication Error",
+            description: "You must be logged in to save an entry.",
+            variant: "destructive",
+        });
+        return;
+    }
 
-    const entryData: Omit<JournalEntry, "id" | "voiceNoteUrl" | "imageUrl"> = {
+    const entryData: Omit<JournalEntry, "id" | "userId" | "voiceNoteUrl" | "imageUrl"> = {
       date: date || new Date(),
       text,
       mood,
@@ -209,7 +217,7 @@ export default function NewJournalEntryPage() {
         title: "Journal Entry Saved",
         description: "Your thoughts have been recorded.",
       });
-      // Reset form state
+      // Reset form state and redirect ONLY on success
       setDate(new Date());
       setText("");
       setMood(undefined);
@@ -217,7 +225,12 @@ export default function NewJournalEntryPage() {
       handleClearImage();
       router.push("/journal");
     } catch (error) {
-      // Error is handled by addJournalEntry in context
+      // Errors from addJournalEntry are caught here.
+      // The context (addJournalEntry) should have already shown a toast for specific data operation errors.
+      // This catch block primarily prevents unhandled promise rejections from crashing the page
+      // and ensures that the success path (resetting form, redirecting) is not executed.
+      console.error("handleSubmit in NewJournalEntryPage caught error from addJournalEntry:", error);
+      // No redundant toast here as the context is expected to handle its own error display.
     }
   };
 
@@ -305,7 +318,7 @@ export default function NewJournalEntryPage() {
                         </AlertDescription>
                     </Alert>
                 )}
-                {isProcessingAudio && !isRecording && ( // Show processing only when not actively recording
+                {isProcessingAudio && !isRecording && ( 
                     <div className="flex items-center space-x-2 text-muted-foreground">
                         <Loader2Icon className="h-5 w-5 animate-spin" />
                         <span>Processing audio...</span>
@@ -365,7 +378,7 @@ export default function NewJournalEntryPage() {
                   </div>
               )}
               {imagePreviewUrl && !isProcessingImage && (
-                <div className="relative group w-48 h-48"> {/* Fixed size for preview */}
+                <div className="relative group w-48 h-48"> 
                   <Image src={imagePreviewUrl} alt="Selected image preview" layout="fill" objectFit="cover" className="rounded-md" data-ai-hint="journal image"/>
                   <Button 
                     type="button" 

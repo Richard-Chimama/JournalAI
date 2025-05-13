@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { JournalEntry, Reminder, AIInsight } from "@/lib/types";
@@ -147,9 +146,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
 
   const addJournalEntry = async (entryData: Omit<JournalEntry, "id" | "userId" | "voiceNoteUrl" | "imageUrl">, voiceNoteBlob?: Blob | null, imageFile?: File | null) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
+      if (!user) {
+        toast({ title: "Authentication Error", description: "You must be logged in to save an entry.", variant: "destructive" });
+        throw new Error("User not authenticated for saving entry.");
+      }
+
       let voiceNoteUrl: string | undefined = undefined;
       let imageUrl: string | undefined = undefined;
 
@@ -162,123 +165,148 @@ export function DataProvider({ children }: { children: ReactNode }) {
       
       const newEntry: Omit<JournalEntry, "id"> = {
         ...entryData,
-        date: entryData.date || new Date(), // Ensure date is set
+        date: entryData.date || new Date(), 
         voiceNoteUrl,
         imageUrl,
       };
       
       const id = await addJournalEntryToFirestore(user.uid, newEntry);
-      setJournalEntries((prev) => [{ ...newEntry, id, date: new Date(newEntry.date) } as JournalEntry, ...prev].sort((a,b) => b.date.getTime() - a.date.getTime()));
+      // Ensure date in local state is a Date object
+      const entryForState = { ...newEntry, id, date: newEntry.date instanceof Date ? newEntry.date : new Date(newEntry.date) } as JournalEntry;
+      setJournalEntries((prev) => [entryForState, ...prev].sort((a,b) => b.date.getTime() - a.date.getTime()));
     } catch (error) {
       console.error("Error adding journal entry:", error);
-      toast({ title: "Error", description: "Could not save journal entry.", variant: "destructive" });
+      toast({ title: "Error Saving Entry", description: `Could not save journal entry. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error; // Re-throw the error for the calling component
     } finally {
       setIsLoadingData(false);
     }
   };
 
   const updateJournalEntry = async (entryId: string, updates: Partial<JournalEntry>, newVoiceNoteBlob?: Blob | null, newImageFile?: File | null) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
-      const currentEntry = journalEntries.find(e => e.id === entryId);
-      const finalUpdates = { ...updates };
+        if (!user) {
+            toast({ title: "Authentication Error", description: "You must be logged in to update an entry.", variant: "destructive" });
+            throw new Error("User not authenticated for updating entry.");
+        }
+        const currentEntry = journalEntries.find(e => e.id === entryId);
+        const finalUpdates = { ...updates };
 
-      if (newVoiceNoteBlob) {
-        if (currentEntry?.voiceNoteUrl) await deleteFileFromStorage(currentEntry.voiceNoteUrl);
-        finalUpdates.voiceNoteUrl = await uploadFileToStorage(user.uid, "voice-notes", newVoiceNoteBlob, `voice-note-${Date.now()}.webm`);
-      } else if (updates.voiceNoteUrl === null && currentEntry?.voiceNoteUrl) { // Explicitly set to null to delete
-         await deleteFileFromStorage(currentEntry.voiceNoteUrl);
-         finalUpdates.voiceNoteUrl = undefined;
-      }
+        if (newVoiceNoteBlob) {
+            if (currentEntry?.voiceNoteUrl) await deleteFileFromStorage(currentEntry.voiceNoteUrl);
+            finalUpdates.voiceNoteUrl = await uploadFileToStorage(user.uid, "voice-notes", newVoiceNoteBlob, `voice-note-${Date.now()}.webm`);
+        } else if (updates.voiceNoteUrl === null && currentEntry?.voiceNoteUrl) { 
+            await deleteFileFromStorage(currentEntry.voiceNoteUrl);
+            finalUpdates.voiceNoteUrl = undefined;
+        }
 
+        if (newImageFile) {
+            if (currentEntry?.imageUrl) await deleteFileFromStorage(currentEntry.imageUrl);
+            finalUpdates.imageUrl = await uploadFileToStorage(user.uid, "journal-images", newImageFile, `image-${Date.now()}.${newImageFile.name.split('.').pop()}`);
+        } else if (updates.imageUrl === null && currentEntry?.imageUrl) { 
+            await deleteFileFromStorage(currentEntry.imageUrl);
+            finalUpdates.imageUrl = undefined;
+        }
 
-      if (newImageFile) {
-        if (currentEntry?.imageUrl) await deleteFileFromStorage(currentEntry.imageUrl);
-        finalUpdates.imageUrl = await uploadFileToStorage(user.uid, "journal-images", newImageFile, `image-${Date.now()}.${newImageFile.name.split('.').pop()}`);
-      } else if (updates.imageUrl === null && currentEntry?.imageUrl) { // Explicitly set to null to delete
-         await deleteFileFromStorage(currentEntry.imageUrl);
-         finalUpdates.imageUrl = undefined;
-      }
-
-      await updateJournalEntryInFirestore(user.uid, entryId, finalUpdates);
-      setJournalEntries((prev) =>
-        prev.map((entry) => (entry.id === entryId ? { ...entry, ...finalUpdates, date: finalUpdates.date ? new Date(finalUpdates.date) : entry.date } : entry)).sort((a,b) => b.date.getTime() - a.date.getTime())
-      );
+        await updateJournalEntryInFirestore(user.uid, entryId, finalUpdates);
+        setJournalEntries((prev) =>
+            prev.map((entry) => (entry.id === entryId ? { ...entry, ...finalUpdates, date: finalUpdates.date ? (finalUpdates.date instanceof Date ? finalUpdates.date : new Date(finalUpdates.date)) : entry.date } : entry)).sort((a,b) => b.date.getTime() - a.date.getTime())
+        );
     } catch (error) {
       console.error("Error updating journal entry:", error);
-      toast({ title: "Error", description: "Could not update journal entry.", variant: "destructive" });
+      toast({ title: "Error Updating Entry", description: `Could not update journal entry. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
   };
 
   const deleteJournalEntry = async (id: string) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
-      const entryToDelete = journalEntries.find(e => e.id === id);
-      if (entryToDelete?.voiceNoteUrl) await deleteFileFromStorage(entryToDelete.voiceNoteUrl);
-      if (entryToDelete?.imageUrl) await deleteFileFromStorage(entryToDelete.imageUrl);
+        if (!user) {
+            toast({ title: "Authentication Error", description: "You must be logged in to delete an entry.", variant: "destructive" });
+            throw new Error("User not authenticated for deleting entry.");
+        }
+        const entryToDelete = journalEntries.find(e => e.id === id);
+        if (entryToDelete?.voiceNoteUrl) await deleteFileFromStorage(entryToDelete.voiceNoteUrl);
+        if (entryToDelete?.imageUrl) await deleteFileFromStorage(entryToDelete.imageUrl);
 
-      await deleteJournalEntryFromFirestore(user.uid, id);
-      setJournalEntries((prev) => prev.filter((entry) => entry.id !== id));
+        await deleteJournalEntryFromFirestore(user.uid, id);
+        setJournalEntries((prev) => prev.filter((entry) => entry.id !== id));
     } catch (error) {
       console.error("Error deleting journal entry:", error);
-      toast({ title: "Error", description: "Could not delete journal entry.", variant: "destructive" });
+      toast({ title: "Error Deleting Entry", description: `Could not delete journal entry. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
   };
 
   const addReminder = async (reminderData: Omit<Reminder, "id" | "userId">) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
+      if (!user) {
+        toast({ title: "Authentication Error", description: "You must be logged in to add a reminder.", variant: "destructive" });
+        throw new Error("User not authenticated for adding reminder.");
+      }
       const id = await addReminderToFirestore(user.uid, reminderData);
       setReminders((prev) => [{ ...reminderData, id } as Reminder, ...prev]);
     } catch (error) {
       console.error("Error adding reminder:", error);
-      toast({ title: "Error", description: "Could not save reminder.", variant: "destructive" });
+      toast({ title: "Error Saving Reminder", description: `Could not save reminder. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
   };
 
   const updateReminder = async (reminderId: string, updates: Partial<Reminder>) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
+      if (!user) {
+        toast({ title: "Authentication Error", description: "You must be logged in to update a reminder.", variant: "destructive" });
+        throw new Error("User not authenticated for updating reminder.");
+      }
       await updateReminderInFirestore(user.uid, reminderId, updates);
       setReminders((prev) =>
         prev.map((reminder) => (reminder.id === reminderId ? { ...reminder, ...updates } : reminder))
       );
     } catch (error) {
       console.error("Error updating reminder:", error);
-      toast({ title: "Error", description: "Could not update reminder.", variant: "destructive" });
+      toast({ title: "Error Updating Reminder", description: `Could not update reminder. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
   };
 
   const deleteReminder = async (id: string) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
+      if (!user) {
+        toast({ title: "Authentication Error", description: "You must be logged in to delete a reminder.", variant: "destructive" });
+        throw new Error("User not authenticated for deleting reminder.");
+      }
       await deleteReminderFromFirestore(user.uid, id);
       setReminders((prev) => prev.filter((reminder) => reminder.id !== id));
     } catch (error) {
       console.error("Error deleting reminder:", error);
-      toast({ title: "Error", description: "Could not delete reminder.", variant: "destructive" });
+      toast({ title: "Error Deleting Reminder", description: `Could not delete reminder. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
   };
   
   const addInsightToHistory = async (insightData: Omit<AIInsight, "id" | "userId">) => {
-    if (!user) throw new Error("User not authenticated");
     setIsLoadingData(true);
     try {
+      if (!user) {
+        toast({ title: "Authentication Error", description: "You must be logged in to save insights.", variant: "destructive" });
+        throw new Error("User not authenticated for saving insight.");
+      }
       const newInsightWithDate = {
         ...insightData,
         generatedAt: insightData.generatedAt || new Date().toISOString()
@@ -287,7 +315,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setInsightsHistory((prev) => [{ ...newInsightWithDate, id } as AIInsight, ...prev].sort((a,b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()));
     } catch (error) {
       console.error("Error adding insight:", error);
-      toast({ title: "Error", description: "Could not save AI insight.", variant: "destructive" });
+      toast({ title: "Error Saving Insight", description: `Could not save AI insight. ${error instanceof Error ? error.message : 'Unknown error.'}`, variant: "destructive" });
+      throw error;
     } finally {
       setIsLoadingData(false);
     }
