@@ -176,7 +176,7 @@ export const loadInitialDataForUser = async (userId: string, initialData: {journ
 };
 
 // Check if user has any data (e.g., to determine if initial data should be loaded)
-export constcheckUserHasData = async (userId: string, collectionName: 'journalEntries' | 'reminders' | 'insightsHistory'): Promise<boolean> => {
+export const checkUserHasData = async (userId: string, collectionName: 'journalEntries' | 'reminders' | 'insightsHistory'): Promise<boolean> => {
   const q = query(collection(db, "users", userId, collectionName));
   const snapshot = await getDocs(q);
   return !snapshot.empty;

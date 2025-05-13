@@ -43,18 +43,18 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <TooltipProvider>
+          <AuthProvider> {/* AuthProvider now wraps DataProvider */}
             <DataProvider>
-              <AuthProvider>
+              <TooltipProvider>
                 <SidebarProvider defaultOpen={true}>
                   <AppLayout>
                     {children}
                   </AppLayout>
                   <Toaster />
                 </SidebarProvider>
-              </AuthProvider>
+              </TooltipProvider>
             </DataProvider>
-          </TooltipProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
