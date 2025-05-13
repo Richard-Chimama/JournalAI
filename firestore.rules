@@ -1,0 +1,24 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read, write, and delete their own data within their user-specific collections.
+    match /users/{userId}/journalEntries/{entryId} {
+      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/reminders/{reminderId} {
+      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/insightsHistory/{insightId} {
+      allow read, write, delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Allow creating the user document itself if it doesn't exist,
+    // or for any other top-level user-specific data if needed.
+    // This is a more open rule, be cautious.
+    // Consider if you need a user profile document.
+    match /users/{userId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}

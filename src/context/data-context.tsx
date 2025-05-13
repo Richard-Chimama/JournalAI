@@ -3,44 +3,57 @@
 
 import type { JournalEntry, Reminder, AIInsight } from "@/lib/types";
 import type { ReactNode } from "react";
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { useAuth } from "./auth-context";
+import {
+  addJournalEntryToFirestore,
+  getJournalEntriesFromFirestore,
+  updateJournalEntryInFirestore,
+  deleteJournalEntryFromFirestore,
+  addReminderToFirestore,
+  getRemindersFromFirestore,
+  updateReminderInFirestore,
+  deleteReminderFromFirestore,
+  addAIInsightToFirestore,
+  getAIInsightsFromFirestore,
+  loadInitialDataForUser,
+  checkUserHasData,
+} from "@/lib/firebase/firestoreService";
+import { uploadFileToStorage, deleteFileFromStorage } from "@/lib/firebase/storageService";
+import { useToast } from "@/hooks/use-toast";
 
 interface DataContextType {
   journalEntries: JournalEntry[];
-  addJournalEntry: (entry: JournalEntry) => void;
-  updateJournalEntry: (entry: JournalEntry) => void;
-  deleteJournalEntry: (id: string) => void;
+  addJournalEntry: (entry: Omit<JournalEntry, "id" | "userId">, voiceNoteFile?: Blob | null, imageFile?: File | null) => Promise<void>;
+  updateJournalEntry: (entryId: string, updates: Partial<JournalEntry>, newVoiceNoteFile?: Blob | null, newImageFile?: File | null) => Promise<void>;
+  deleteJournalEntry: (id: string) => Promise<void>;
   reminders: Reminder[];
-  addReminder: (reminder: Reminder) => void;
-  updateReminder: (reminder: Reminder) => void;
-  deleteReminder: (id: string) => void;
+  addReminder: (reminder: Omit<Reminder, "id" | "userId">) => Promise<void>;
+  updateReminder: (reminderId: string, updates: Partial<Reminder>) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
   insightsHistory: AIInsight[];
-  addInsightToHistory: (insight: AIInsight) => void;
+  addInsightToHistory: (insight: Omit<AIInsight, "id" | "userId">) => Promise<void>;
+  isLoadingData: boolean;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
-const initialJournalEntries: JournalEntry[] = [
+const initialJournalEntriesData: Omit<JournalEntry, "id" | "date">[] = [
   {
-    id: "1",
-    date: new Date(Date.now() - 86400000 * 2), // 2 days ago
     text: "Felt a bit overwhelmed with work today, but managed to complete my top priorities. Took a short walk in the evening which helped clear my head.",
     mood: "okay",
     tags: ["work", "stress", "self-care"],
   },
   {
-    id: "2",
-    date: new Date(Date.now() - 86400000), // 1 day ago
     text: "Had a great conversation with an old friend. It's amazing how reconnecting can lift your spirits. Feeling grateful for good friends.",
     mood: "good",
     tags: ["friends", "gratitude", "connection"],
-    voiceNoteUrl: "data:audio/webm;base64,R0JNdAAgAAAADFdlYk1WUDggQUAAAAAAAQAPRLpA////+4Lry5AAG89uFHon2N8gQVL8f8/99J0h8f//+23//j0PAAAAAANA8OqAgCgAAAAAEEYhYAAIYAA/+BCgAAAAAARNABAAAAARgBBAAAAABAAgAAAIWFiAYAAAAAAABCAoCAAAAAgAAgAAAIKYAYAAAAAABAA4AgAQAAAAAEEYhYAAIYAA/+BCgAAAAAARNABAAAAARgBBAAAAABAAgAAAIWFiAYAAAAAAABCAoCAAAAAgAAgAAAIKYAYAAAAAABAA4AgAQAAAAAEnN2d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3D" // Mock voice note for demonstration, replace with actual data if available
+    // voiceNoteUrl will be placeholder or handled during initial data load if we want to include mock audio
   },
 ];
 
-const initialReminders: Reminder[] = [
+const initialRemindersData: Omit<Reminder, "id">[] = [
   {
-    id: "1",
     title: "Morning Meditation",
     time: "07:00",
     frequency: "daily",
@@ -48,7 +61,6 @@ const initialReminders: Reminder[] = [
     description: "10 minutes of mindfulness meditation.",
   },
   {
-    id: "2",
     title: "Gym Session",
     time: "18:00",
     frequency: "weekdays",
@@ -56,19 +68,16 @@ const initialReminders: Reminder[] = [
     description: "Strength training workout.",
   },
    {
-    id: "3",
     title: "Weekly Review",
     time: "16:00",
-    frequency: "weekly", // Assuming weekly on Sunday
+    frequency: "weekly",
     active: false,
     description: "Review journal and plan next week.",
   },
 ];
 
-const initialInsightsHistory: AIInsight[] = [
+const initialInsightsHistoryData: Omit<AIInsight, "id" | "generatedAt">[] = [
   {
-    id: "prev1",
-    generatedAt: new Date(Date.now() - 86400000 * 5).toISOString(), // 5 days ago
     themes: ["Procrastination", "Sleep Quality"],
     emotions: ["Anxious", "Tired"],
     stressors: ["Upcoming project deadline", "Late nights"],
@@ -79,93 +88,211 @@ const initialInsightsHistory: AIInsight[] = [
 
 
 export function DataProvider({ children }: { children: ReactNode }) {
+  const { user, authLoading } = useAuth();
+  const { toast } = useToast();
+
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [insightsHistory, setInsightsHistory] = useState<AIInsight[]>([]);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
 
+  const fetchData = useCallback(async (userId: string) => {
+    setIsLoadingData(true);
+    try {
+      const hasJournalData = await checkUserHasData(userId, 'journalEntries');
+      if (!hasJournalData) {
+        const initialEntriesWithDates = initialJournalEntriesData.map((entry, index) => ({
+          ...entry,
+          date: new Date(Date.now() - 86400000 * (initialJournalEntriesData.length - index)), // Dynamic dates
+        }));
+        const initialInsightsWithDates = initialInsightsHistoryData.map((insight, index) => ({
+          ...insight,
+          generatedAt: new Date(Date.now() - 86400000 * (5 + index)).toISOString(),
+        }));
+
+        await loadInitialDataForUser(userId, {
+          journalEntries: initialEntriesWithDates,
+          reminders: initialRemindersData,
+          insightsHistory: initialInsightsWithDates,
+        });
+      }
+
+      const [entries, rems, insights] = await Promise.all([
+        getJournalEntriesFromFirestore(userId),
+        getRemindersFromFirestore(userId),
+        getAIInsightsFromFirestore(userId),
+      ]);
+      setJournalEntries(entries);
+      setReminders(rems);
+      setInsightsHistory(insights);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      toast({ title: "Error", description: "Could not load your data.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    // Load from localStorage on mount
-    const storedEntries = localStorage.getItem("soulCompassJournalEntries");
-    if (storedEntries) {
-      setJournalEntries(JSON.parse(storedEntries).map((e: any) => ({...e, date: new Date(e.date)})));
-    } else {
-      setJournalEntries(initialJournalEntries); 
+    if (user && !authLoading) {
+      fetchData(user.uid);
+    } else if (!user && !authLoading) {
+      // Clear data if user logs out
+      setJournalEntries([]);
+      setReminders([]);
+      setInsightsHistory([]);
+      setIsLoadingData(false);
     }
+  }, [user, authLoading, fetchData]);
 
-    const storedReminders = localStorage.getItem("soulCompassReminders");
-    if (storedReminders) {
-      setReminders(JSON.parse(storedReminders));
-    } else {
-       setReminders(initialReminders);
+
+  const addJournalEntry = async (entryData: Omit<JournalEntry, "id" | "userId" | "voiceNoteUrl" | "imageUrl">, voiceNoteBlob?: Blob | null, imageFile?: File | null) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      let voiceNoteUrl: string | undefined = undefined;
+      let imageUrl: string | undefined = undefined;
+
+      if (voiceNoteBlob) {
+        voiceNoteUrl = await uploadFileToStorage(user.uid, "voice-notes", voiceNoteBlob, `voice-note-${Date.now()}.webm`);
+      }
+      if (imageFile) {
+        imageUrl = await uploadFileToStorage(user.uid, "journal-images", imageFile, `image-${Date.now()}.${imageFile.name.split('.').pop()}`);
+      }
+      
+      const newEntry: Omit<JournalEntry, "id"> = {
+        ...entryData,
+        date: entryData.date || new Date(), // Ensure date is set
+        voiceNoteUrl,
+        imageUrl,
+      };
+      
+      const id = await addJournalEntryToFirestore(user.uid, newEntry);
+      setJournalEntries((prev) => [{ ...newEntry, id, date: new Date(newEntry.date) } as JournalEntry, ...prev].sort((a,b) => b.date.getTime() - a.date.getTime()));
+    } catch (error) {
+      console.error("Error adding journal entry:", error);
+      toast({ title: "Error", description: "Could not save journal entry.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
     }
-
-    const storedInsightsHistory = localStorage.getItem("soulCompassInsightsHistory");
-    if (storedInsightsHistory) {
-      setInsightsHistory(JSON.parse(storedInsightsHistory));
-    } else {
-      setInsightsHistory(initialInsightsHistory);
-    }
-
-    setIsLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if(isLoaded) {
-      localStorage.setItem("soulCompassJournalEntries", JSON.stringify(journalEntries));
-    }
-  }, [journalEntries, isLoaded]);
-
-  useEffect(() => {
-    if(isLoaded) {
-     localStorage.setItem("soulCompassReminders", JSON.stringify(reminders));
-    }
-  }, [reminders, isLoaded]);
-
-  useEffect(() => {
-    if(isLoaded) {
-     localStorage.setItem("soulCompassInsightsHistory", JSON.stringify(insightsHistory));
-    }
-  }, [insightsHistory, isLoaded]);
-
-
-  const addJournalEntry = (entry: JournalEntry) => {
-    setJournalEntries((prev) => [...prev, entry]);
   };
 
-  const updateJournalEntry = (updatedEntry: JournalEntry) => {
-    setJournalEntries((prev) =>
-      prev.map((entry) => (entry.id === updatedEntry.id ? updatedEntry : entry))
-    );
+  const updateJournalEntry = async (entryId: string, updates: Partial<JournalEntry>, newVoiceNoteBlob?: Blob | null, newImageFile?: File | null) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      const currentEntry = journalEntries.find(e => e.id === entryId);
+      const finalUpdates = { ...updates };
+
+      if (newVoiceNoteBlob) {
+        if (currentEntry?.voiceNoteUrl) await deleteFileFromStorage(currentEntry.voiceNoteUrl);
+        finalUpdates.voiceNoteUrl = await uploadFileToStorage(user.uid, "voice-notes", newVoiceNoteBlob, `voice-note-${Date.now()}.webm`);
+      } else if (updates.voiceNoteUrl === null && currentEntry?.voiceNoteUrl) { // Explicitly set to null to delete
+         await deleteFileFromStorage(currentEntry.voiceNoteUrl);
+         finalUpdates.voiceNoteUrl = undefined;
+      }
+
+
+      if (newImageFile) {
+        if (currentEntry?.imageUrl) await deleteFileFromStorage(currentEntry.imageUrl);
+        finalUpdates.imageUrl = await uploadFileToStorage(user.uid, "journal-images", newImageFile, `image-${Date.now()}.${newImageFile.name.split('.').pop()}`);
+      } else if (updates.imageUrl === null && currentEntry?.imageUrl) { // Explicitly set to null to delete
+         await deleteFileFromStorage(currentEntry.imageUrl);
+         finalUpdates.imageUrl = undefined;
+      }
+
+      await updateJournalEntryInFirestore(user.uid, entryId, finalUpdates);
+      setJournalEntries((prev) =>
+        prev.map((entry) => (entry.id === entryId ? { ...entry, ...finalUpdates, date: finalUpdates.date ? new Date(finalUpdates.date) : entry.date } : entry)).sort((a,b) => b.date.getTime() - a.date.getTime())
+      );
+    } catch (error) {
+      console.error("Error updating journal entry:", error);
+      toast({ title: "Error", description: "Could not update journal entry.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
 
-  const deleteJournalEntry = (id: string) => {
-    setJournalEntries((prev) => prev.filter((entry) => entry.id !== id));
+  const deleteJournalEntry = async (id: string) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      const entryToDelete = journalEntries.find(e => e.id === id);
+      if (entryToDelete?.voiceNoteUrl) await deleteFileFromStorage(entryToDelete.voiceNoteUrl);
+      if (entryToDelete?.imageUrl) await deleteFileFromStorage(entryToDelete.imageUrl);
+
+      await deleteJournalEntryFromFirestore(user.uid, id);
+      setJournalEntries((prev) => prev.filter((entry) => entry.id !== id));
+    } catch (error) {
+      console.error("Error deleting journal entry:", error);
+      toast({ title: "Error", description: "Could not delete journal entry.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
 
-  const addReminder = (reminder: Reminder) => {
-    setReminders((prev) => [...prev, reminder]);
+  const addReminder = async (reminderData: Omit<Reminder, "id" | "userId">) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      const id = await addReminderToFirestore(user.uid, reminderData);
+      setReminders((prev) => [{ ...reminderData, id } as Reminder, ...prev]);
+    } catch (error) {
+      console.error("Error adding reminder:", error);
+      toast({ title: "Error", description: "Could not save reminder.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
 
-  const updateReminder = (updatedReminder: Reminder) => {
-    setReminders((prev) =>
-      prev.map((reminder) => (reminder.id === updatedReminder.id ? updatedReminder : reminder))
-    );
+  const updateReminder = async (reminderId: string, updates: Partial<Reminder>) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      await updateReminderInFirestore(user.uid, reminderId, updates);
+      setReminders((prev) =>
+        prev.map((reminder) => (reminder.id === reminderId ? { ...reminder, ...updates } : reminder))
+      );
+    } catch (error) {
+      console.error("Error updating reminder:", error);
+      toast({ title: "Error", description: "Could not update reminder.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
 
-  const deleteReminder = (id: string) => {
-    setReminders((prev) => prev.filter((reminder) => reminder.id !== id));
+  const deleteReminder = async (id: string) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      await deleteReminderFromFirestore(user.uid, id);
+      setReminders((prev) => prev.filter((reminder) => reminder.id !== id));
+    } catch (error) {
+      console.error("Error deleting reminder:", error);
+      toast({ title: "Error", description: "Could not delete reminder.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
   
-  const addInsightToHistory = (insight: AIInsight) => {
-    setInsightsHistory((prev) => [insight, ...prev]); // Add new insight to the beginning
+  const addInsightToHistory = async (insightData: Omit<AIInsight, "id" | "userId">) => {
+    if (!user) throw new Error("User not authenticated");
+    setIsLoadingData(true);
+    try {
+      const newInsightWithDate = {
+        ...insightData,
+        generatedAt: insightData.generatedAt || new Date().toISOString()
+      };
+      const id = await addAIInsightToFirestore(user.uid, newInsightWithDate);
+      setInsightsHistory((prev) => [{ ...newInsightWithDate, id } as AIInsight, ...prev].sort((a,b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()));
+    } catch (error) {
+      console.error("Error adding insight:", error);
+      toast({ title: "Error", description: "Could not save AI insight.", variant: "destructive" });
+    } finally {
+      setIsLoadingData(false);
+    }
   };
   
-  if (!isLoaded) {
-    return null; // Or a loading spinner
-  }
-
   return (
     <DataContext.Provider
       value={{
@@ -179,6 +306,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         deleteReminder,
         insightsHistory,
         addInsightToHistory,
+        isLoadingData,
       }}
     >
       {children}

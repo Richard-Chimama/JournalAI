@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { JournalEntry, Mood } from "@/lib/types";
+import type { Mood, JournalEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { CalendarIcon, ImagePlusIcon, MicIcon, SaveIcon, RefreshCcwIcon, Trash2Icon, Loader2Icon, AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { format } from "date-fns";
@@ -24,22 +24,23 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 export default function NewJournalEntryPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { addJournalEntry } = useDataContext();
+  const { addJournalEntry, isLoadingData } = useDataContext();
 
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [text, setText] = useState("");
   const [mood, setMood] = useState<Mood | undefined>(undefined);
   
   // Image State
-  const [imageDataUri, setImageDataUri] = useState<string | null>(null);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null); // For local preview
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
-
 
   // Voice Note State
   const [hasMicrophonePermission, setHasMicrophonePermission] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
-  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
+  const [recordedAudioBlob, setRecordedAudioBlob] = useState<Blob | null>(null);
+  const [recordedAudioPreviewUrl, setRecordedAudioPreviewUrl] = useState<string | null>(null); // For local preview
   const [isProcessingAudio, setIsProcessingAudio] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -56,11 +57,7 @@ export default function NewJournalEntryPage() {
         } catch (error) {
           console.error('Error accessing microphone:', error);
           setHasMicrophonePermission(false);
-          toast({
-            variant: 'destructive',
-            title: 'Microphone Access Denied',
-            description: 'Please enable microphone permissions in your browser settings to record voice notes.',
-          });
+          // Toast moved to button click to avoid spamming on load if permission is denied by default
         }
       } else {
          toast({
@@ -77,23 +74,27 @@ export default function NewJournalEntryPage() {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         mediaRecorderRef.current.stop();
       }
+      if (recordedAudioPreviewUrl) URL.revokeObjectURL(recordedAudioPreviewUrl);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     };
-  }, [toast]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast]); // imagePreviewUrl and recordedAudioPreviewUrl are intentionally omitted to avoid loop with revokeObjectURL
 
   const startRecording = async () => {
     if (!hasMicrophonePermission) {
-      toast({ title: "Microphone permission required", variant: "destructive" });
+      toast({ title: "Microphone permission required", description: "Please enable microphone permissions in your browser settings.", variant: "destructive" });
       return;
     }
-    if (isRecording || recordedAudioUrl) { 
+    if (isRecording || recordedAudioBlob) { 
       handleClearRecording(true); 
       return;
     }
 
     try {
+      setIsProcessingAudio(true); // Show processing early
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -101,51 +102,60 @@ export default function NewJournalEntryPage() {
       };
 
       mediaRecorderRef.current.onstop = () => {
-        setIsProcessingAudio(true);
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); 
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          setRecordedAudioUrl(reader.result as string);
-          setIsProcessingAudio(false);
-          toast({ title: "Recording finished" });
-        };
-        reader.onerror = () => {
-            setIsProcessingAudio(false);
-            toast({title: "Failed to process audio", variant: "destructive"});
-        }
+        setRecordedAudioBlob(audioBlob);
+        const previewUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudioPreviewUrl(previewUrl);
+        setIsProcessingAudio(false);
+        toast({ title: "Recording finished" });
+        mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+        mediaStreamRef.current = null;
+      };
+      
+      mediaRecorderRef.current.onerror = (event) => {
+        console.error("MediaRecorder error:", event);
+        setIsRecording(false);
+        setIsProcessingAudio(false);
+        toast({title: "Recording error", description: "Something went wrong during recording.", variant: "destructive"});
         mediaStreamRef.current?.getTracks().forEach(track => track.stop());
         mediaStreamRef.current = null;
       };
 
       mediaRecorderRef.current.start();
       setIsRecording(true);
+      setIsProcessingAudio(false); // Done with initial setup for recording
       toast({ title: "Recording started..." });
     } catch (error) {
       console.error("Failed to start recording:", error);
+      setIsProcessingAudio(false);
       toast({ title: "Could not start recording", description: (error as Error).message, variant: "destructive" });
     }
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stop(); // onstop will handle the rest
       setIsRecording(false);
     }
   };
 
   const handleClearRecording = (startNewRecording = false) => {
-    setRecordedAudioUrl(null);
+    if (recordedAudioPreviewUrl) URL.revokeObjectURL(recordedAudioPreviewUrl);
+    setRecordedAudioPreviewUrl(null);
+    setRecordedAudioBlob(null);
     audioChunksRef.current = [];
+
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-        mediaRecorderRef.current.stop();
-        setIsRecording(false);
+        mediaRecorderRef.current.stop(); // This will trigger onstop, which cleans up the stream
+    } else {
+      mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
-    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
-    mediaStreamRef.current = null;
+    setIsRecording(false);
+
 
     if (startNewRecording) {
-        setTimeout(() => startRecording(), 100);
+        setTimeout(() => startRecording(), 100); // Small delay to ensure resources are freed
     } else {
         toast({ title: "Recording cleared" });
     }
@@ -155,22 +165,20 @@ export default function NewJournalEntryPage() {
     const file = event.target.files?.[0];
     if (file) {
       setIsProcessingImage(true);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageDataUri(reader.result as string);
-        setIsProcessingImage(false);
-        toast({ title: "Image selected" });
-      };
-      reader.onerror = () => {
-        setIsProcessingImage(false);
-        toast({ title: "Failed to load image", variant: "destructive" });
-      };
-      reader.readAsDataURL(file);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl); // Revoke old preview URL
+
+      setSelectedImageFile(file);
+      const newPreviewUrl = URL.createObjectURL(file);
+      setImagePreviewUrl(newPreviewUrl);
+      setIsProcessingImage(false);
+      toast({ title: "Image selected" });
     }
   };
 
   const handleClearImage = () => {
-    setImageDataUri(null);
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    setImagePreviewUrl(null);
+    setSelectedImageFile(null);
     if (imageInputRef.current) {
       imageInputRef.current.value = ""; // Reset file input
     }
@@ -188,30 +196,29 @@ export default function NewJournalEntryPage() {
       return;
     }
 
-    const newEntry: JournalEntry = {
-      id: Date.now().toString(), 
+    const entryData: Omit<JournalEntry, "id" | "voiceNoteUrl" | "imageUrl"> = {
       date: date || new Date(),
       text,
       mood,
-      voiceNoteUrl: recordedAudioUrl || undefined,
-      imageUrl: imageDataUri || undefined,
       tags: [], 
     };
 
-    addJournalEntry(newEntry);
-
-    toast({
-      title: "Journal Entry Saved",
-      description: "Your thoughts have been recorded.",
-    });
-    setRecordedAudioUrl(null); 
-    audioChunksRef.current = [];
-    setIsRecording(false);
-    setImageDataUri(null);
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
+    try {
+      await addJournalEntry(entryData, recordedAudioBlob, selectedImageFile);
+      toast({
+        title: "Journal Entry Saved",
+        description: "Your thoughts have been recorded.",
+      });
+      // Reset form state
+      setDate(new Date());
+      setText("");
+      setMood(undefined);
+      handleClearRecording();
+      handleClearImage();
+      router.push("/journal");
+    } catch (error) {
+      // Error is handled by addJournalEntry in context
     }
-    router.push("/journal");
   };
 
   return (
@@ -294,39 +301,39 @@ export default function NewJournalEntryPage() {
                         <AlertTriangleIcon className="h-4 w-4" />
                         <AlertTitle>Microphone Access Denied</AlertTitle>
                         <AlertDescription>
-                        Please enable microphone permissions in your browser settings to record voice notes.
+                        To record voice notes, please enable microphone permissions in your browser settings and refresh the page.
                         </AlertDescription>
                     </Alert>
                 )}
-                {isProcessingAudio && (
+                {isProcessingAudio && !isRecording && ( // Show processing only when not actively recording
                     <div className="flex items-center space-x-2 text-muted-foreground">
                         <Loader2Icon className="h-5 w-5 animate-spin" />
                         <span>Processing audio...</span>
                     </div>
                 )}
-                {recordedAudioUrl && !isProcessingAudio && (
+                {recordedAudioPreviewUrl && !isProcessingAudio && (
                     <div className="space-y-2">
-                        <audio controls src={recordedAudioUrl} className="w-full"></audio>
+                        <audio controls src={recordedAudioPreviewUrl} className="w-full"></audio>
                         <div className="flex space-x-2">
-                            <Button type="button" variant="outline" onClick={() => handleClearRecording(true)} disabled={isRecording || isProcessingAudio}>
+                            <Button type="button" variant="outline" onClick={() => handleClearRecording(true)} disabled={isRecording || isProcessingAudio || isLoadingData}>
                                 <RefreshCcwIcon className="mr-2 h-4 w-4" /> Re-record
                             </Button>
-                            <Button type="button" variant="destructive" onClick={() => handleClearRecording(false)} disabled={isRecording || isProcessingAudio}>
+                            <Button type="button" variant="destructive" onClick={() => handleClearRecording(false)} disabled={isRecording || isProcessingAudio || isLoadingData}>
                                 <Trash2Icon className="mr-2 h-4 w-4" /> Delete
                             </Button>
                         </div>
                     </div>
                 )}
-                {!recordedAudioUrl && !isProcessingAudio && (
+                {!recordedAudioPreviewUrl && !isProcessingAudio && (
                     <Button 
                         type="button" 
                         variant="outline" 
                         onClick={isRecording ? stopRecording : startRecording}
-                        disabled={!hasMicrophonePermission || isProcessingAudio}
+                        disabled={!hasMicrophonePermission || isProcessingAudio || isLoadingData}
                         className="w-full"
                     >
                         <MicIcon className="mr-2 h-4 w-4" />
-                        {isRecording ? "Stop Recording" : "Record Voice Note"}
+                        {isRecording ? "Stop Recording" : (recordedAudioBlob ? "Record Again" : "Record Voice Note")}
                     </Button>
                 )}
                  {isRecording && (
@@ -349,7 +356,7 @@ export default function NewJournalEntryPage() {
                 onChange={handleImageChange} 
                 className="hidden" 
                 id="image-upload"
-                disabled={isProcessingImage}
+                disabled={isProcessingImage || isLoadingData}
               />
               {isProcessingImage && (
                  <div className="flex items-center space-x-2 text-muted-foreground">
@@ -357,9 +364,9 @@ export default function NewJournalEntryPage() {
                     <span>Processing image...</span>
                   </div>
               )}
-              {imageDataUri && !isProcessingImage && (
-                <div className="relative group">
-                  <Image src={imageDataUri} alt="Selected image preview" width={200} height={200} className="rounded-md object-cover aspect-square" data-ai-hint="journal image"/>
+              {imagePreviewUrl && !isProcessingImage && (
+                <div className="relative group w-48 h-48"> {/* Fixed size for preview */}
+                  <Image src={imagePreviewUrl} alt="Selected image preview" layout="fill" objectFit="cover" className="rounded-md" data-ai-hint="journal image"/>
                   <Button 
                     type="button" 
                     variant="destructive" 
@@ -367,19 +374,19 @@ export default function NewJournalEntryPage() {
                     onClick={handleClearImage} 
                     className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
                     aria-label="Clear image"
-                    disabled={isProcessingImage}
+                    disabled={isProcessingImage || isLoadingData}
                   >
                     <XCircleIcon className="h-5 w-5" />
                   </Button>
                 </div>
               )}
-              {!imageDataUri && !isProcessingImage && (
+              {!imagePreviewUrl && !isProcessingImage && (
                 <Button 
                     type="button" 
                     variant="outline" 
                     onClick={() => imageInputRef.current?.click()} 
                     className="w-full"
-                    disabled={isProcessingImage}
+                    disabled={isProcessingImage || isLoadingData}
                 >
                   <ImagePlusIcon className="mr-2 h-4 w-4" />
                   Add Image
@@ -388,8 +395,8 @@ export default function NewJournalEntryPage() {
             </div>
            
             <div className="flex justify-end">
-              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isRecording || isProcessingAudio || isProcessingImage}>
-                <SaveIcon className="mr-2 h-4 w-4" />
+              <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isRecording || isProcessingAudio || isProcessingImage || isLoadingData}>
+                {isLoadingData ? <Loader2Icon className="mr-2 h-4 w-4 animate-spin" /> : <SaveIcon className="mr-2 h-4 w-4" />}
                 Save Entry
               </Button>
             </div>

@@ -1,9 +1,9 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import type { AIInsight, JournalEntryForAI } from "@/lib/types";
@@ -11,15 +11,22 @@ import { Loader2Icon, LightbulbIcon, AlertTriangleIcon, HistoryIcon } from "luci
 import { analyzeJournalEntriesAction } from "@/app/actions";
 import { useDataContext } from "@/context/data-context";
 import { format, parseISO } from "date-fns";
+import { getFileAsDataUrl } from "@/lib/firebase/storageService"; // Import the new service
+import { useAuth } from "@/context/auth-context";
 
 export default function InsightsPage() {
   const { toast } = useToast();
-  const { journalEntries, insightsHistory, addInsightToHistory } = useDataContext();
-  const [isLoading, setIsLoading] = useState(false);
+  const { user, authLoading } = useAuth();
+  const { journalEntries, insightsHistory, addInsightToHistory, isLoadingData: contextLoading } = useDataContext();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleAnalyzeEntries = async () => {
-    setIsLoading(true);
+  const handleAnalyzeEntries = useCallback(async () => {
+    if (!user) {
+      toast({ title: "Authentication Error", description: "Please log in to analyze entries.", variant: "destructive" });
+      return;
+    }
+    setIsAnalyzing(true);
     setError(null);
 
     if (journalEntries.length === 0) {
@@ -28,27 +35,50 @@ export default function InsightsPage() {
         description: "Please write some journal entries first.",
         variant: "default",
       });
-      setIsLoading(false);
+      setIsAnalyzing(false);
       return;
     }
 
-    const entriesForAI: JournalEntryForAI[] = journalEntries.map(entry => ({
-      date: entry.date.toISOString(),
-      mood: entry.mood,
-      text: entry.text,
-      voiceNoteDataUri: entry.voiceNoteUrl, 
-      imageDataUri: entry.imageUrl, // Pass the image data URI if it exists
-    }));
-
     try {
+      const entriesForAI: JournalEntryForAI[] = await Promise.all(
+        journalEntries.map(async (entry) => {
+          let voiceNoteDataUri: string | undefined = undefined;
+          let imageDataUri: string | undefined = undefined;
+
+          if (entry.voiceNoteUrl) {
+            try {
+              voiceNoteDataUri = await getFileAsDataUrl(entry.voiceNoteUrl);
+            } catch (e) {
+              console.warn(`Failed to fetch/convert voice note for entry ${entry.id}:`, e);
+              toast({ title: "Media Error", description: `Could not load voice note for an entry. Analysis will proceed without it.`, variant: "default", duration: 2000});
+            }
+          }
+          if (entry.imageUrl) {
+            try {
+              imageDataUri = await getFileAsDataUrl(entry.imageUrl);
+            } catch (e) {
+              console.warn(`Failed to fetch/convert image for entry ${entry.id}:`, e);
+               toast({ title: "Media Error", description: `Could not load image for an entry. Analysis will proceed without it.`, variant: "default", duration: 2000});
+            }
+          }
+
+          return {
+            date: entry.date.toISOString(),
+            mood: entry.mood,
+            text: entry.text,
+            voiceNoteDataUri,
+            imageDataUri,
+          };
+        })
+      );
+
       const result = await analyzeJournalEntriesAction({ journalEntries: entriesForAI });
       if (result) {
-        const newInsight: AIInsight = {
+        const newInsight: Omit<AIInsight, "id" | "userId"> = { // userId will be handled by context
           ...result,
-          id: Date.now().toString(),
           generatedAt: new Date().toISOString(),
         };
-        addInsightToHistory(newInsight);
+        await addInsightToHistory(newInsight); // addInsightToHistory is now async
         toast({
           title: "New Analysis Complete",
           description: "Fresh insights have been generated and saved.",
@@ -66,13 +96,16 @@ export default function InsightsPage() {
         variant: "destructive",
       });
     } finally {
-      setIsLoading(false);
+      setIsAnalyzing(false);
     }
-  };
+  }, [user, journalEntries, addInsightToHistory, toast]);
 
   const sortedInsightsHistory = [...insightsHistory].sort((a, b) => 
     new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime()
   );
+  
+  const isLoading = authLoading || contextLoading || isAnalyzing;
+
 
   return (
     <div className="space-y-6">
@@ -91,13 +124,13 @@ export default function InsightsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={handleAnalyzeEntries} disabled={isLoading || journalEntries.length === 0} className="w-full sm:w-auto">
+          <Button onClick={handleAnalyzeEntries} disabled={isLoading || journalEntries.length === 0 || !user} className="w-full sm:w-auto">
             {isLoading ? (
               <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <LightbulbIcon className="mr-2 h-4 w-4" />
             )}
-            {isLoading ? "Analyzing..." : (journalEntries.length === 0 ? "Add Entries to Analyze" : "Generate New Insights")}
+            {isAnalyzing ? "Analyzing..." : (journalEntries.length === 0 ? "Add Entries to Analyze" : "Generate New Insights")}
           </Button>
         </CardContent>
       </Card>
@@ -115,15 +148,22 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       )}
+      
+      {isLoading && !isAnalyzing && ( // Show general loading spinner if not specifically analyzing
+          <div className="flex justify-center items-center py-10">
+            <Loader2Icon className="h-10 w-10 animate-spin text-primary" />
+          </div>
+      )}
 
-      {sortedInsightsHistory.length > 0 && (
+
+      {!isLoading && sortedInsightsHistory.length > 0 && (
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             <HistoryIcon className="h-6 w-6 text-primary" />
             Insights History
           </h2>
           <Accordion type="single" collapsible className="w-full space-y-4">
-            {sortedInsightsHistory.map((insight, index) => (
+            {sortedInsightsHistory.map((insight) => (
               <AccordionItem value={`insight-${insight.id}`} key={insight.id} className="bg-card border rounded-lg shadow-md">
                 <AccordionTrigger className="p-6 hover:no-underline">
                   <div className="flex flex-col items-start text-left">
@@ -139,7 +179,7 @@ export default function InsightsPage() {
                   <div className="space-y-4">
                     <Card className="shadow-sm">
                       <CardHeader><CardTitle className="text-xl">Summary</CardTitle></CardHeader>
-                      <CardContent><p className="text-foreground/80">{insight.summary}</p></CardContent>
+                      <CardContent><p className="text-foreground/80 whitespace-pre-wrap">{insight.summary}</p></CardContent>
                     </Card>
 
                     <div className="grid md:grid-cols-2 gap-4">
@@ -178,7 +218,7 @@ export default function InsightsPage() {
 
                     <Card className="shadow-sm bg-accent/10 border-accent">
                       <CardHeader><CardTitle className="text-xl text-accent-foreground">Recommended Actions</CardTitle></CardHeader>
-                      <CardContent><p className="text-accent-foreground/90">{insight.recommendations}</p></CardContent>
+                      <CardContent><p className="text-accent-foreground/90 whitespace-pre-wrap">{insight.recommendations}</p></CardContent>
                     </Card>
                   </div>
                 </AccordionContent>
@@ -187,14 +227,14 @@ export default function InsightsPage() {
           </Accordion>
         </div>
       )}
-      {sortedInsightsHistory.length === 0 && !isLoading && !error && (
+      {!isLoading && sortedInsightsHistory.length === 0 && !error && (
         <Card className="shadow-md">
             <CardHeader>
                 <CardTitle>No Insights Yet</CardTitle>
             </CardHeader>
             <CardContent>
                 <p className="text-muted-foreground">
-                    Click the &quot;Generate New Insights&quot; button above to get your first AI-powered analysis of your journal entries.
+                    {user ? 'Click the "Generate New Insights" button above to get your first AI-powered analysis of your journal entries.' : 'Please log in to generate insights.'}
                 </p>
             </CardContent>
         </Card>

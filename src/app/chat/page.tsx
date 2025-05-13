@@ -17,12 +17,12 @@ import { cn } from "@/lib/utils";
 
 export default function ChatPage() {
   const { toast } = useToast();
-  const { user } = useAuth();
-  const { journalEntries, reminders } = useDataContext();
+  const { user, authLoading } = useAuth();
+  const { journalEntries, reminders, isLoadingData: contextLoading } = useDataContext();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,33 +33,41 @@ export default function ChatPage() {
   }, [messages]);
   
   useEffect(() => {
-    // Add initial greeting from assistant
-    setMessages([
-      { role: "assistant", content: "Hello! I'm Soul Compass, your personal journal coach. How can I help you reflect or plan today?" }
-    ]);
-  }, []);
+    // Add initial greeting from assistant only once and if no messages yet
+    if (messages.length === 0) {
+        setMessages([
+        { role: "assistant", content: "Hello! I'm Soul Compass, your personal journal coach. How can I help you reflect or plan today?" }
+        ]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency to run only once on mount
 
 
   const handleSendMessage = async (e?: FormEvent) => {
     if (e) e.preventDefault();
     const currentMessage = inputValue.trim();
-    if (!currentMessage) return;
+    if (!currentMessage || !user) return;
 
     const newUserMessage: ChatMessage = { role: "user", content: currentMessage };
     setMessages((prevMessages) => [...prevMessages, newUserMessage]);
     setInputValue("");
-    setIsLoading(true);
+    setIsSending(true);
 
     try {
-      const chatHistoryForAI = messages.slice(-10); // Send last 10 messages as history
+      // Prepare a limited history for the AI to keep context concise
+      const chatHistoryForAI = messages.slice(-10).map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }));
+
 
       const result = await chatWithCoachAction(
         {
           chatHistory: chatHistoryForAI,
           newMessage: currentMessage,
         },
-        journalEntries, // Pass full entries
-        reminders       // Pass full reminders
+        journalEntries, 
+        reminders       
       );
 
       if (result && result.response) {
@@ -80,11 +88,10 @@ export default function ChatPage() {
         description: errorMessage,
         variant: "destructive",
       });
-       // Add a message to the chat indicating the error
       const errorResponse: ChatMessage = { role: "assistant", content: `Sorry, I encountered an error: ${errorMessage}` };
       setMessages((prevMessages) => [...prevMessages, errorResponse]);
     } finally {
-      setIsLoading(false);
+      setIsSending(false);
     }
   };
   
@@ -97,6 +104,7 @@ export default function ChatPage() {
     return email.substring(0, 2).toUpperCase();
   };
 
+  const isLoading = authLoading || contextLoading;
 
   return (
     <div className="flex flex-col h-[calc(100vh-theme(spacing.16)-theme(spacing.12))] sm:h-[calc(100vh-theme(spacing.16)-theme(spacing.16))]">
@@ -109,6 +117,16 @@ export default function ChatPage() {
 
       <Card className="flex-1 flex flex-col shadow-lg overflow-hidden">
         <ScrollArea className="flex-1 p-4 sm:p-6 space-y-4" ref={scrollAreaRef}>
+          {isLoading && messages.length <= 1 && ( // Show loading placeholder if initial data is loading and only greeting is present
+            <div className="flex items-start gap-3 justify-start">
+              <Avatar className="h-8 w-8 border">
+                 <AvatarFallback><BotIcon className="h-5 w-5 text-primary" /></AvatarFallback>
+              </Avatar>
+              <div className="bg-muted rounded-xl px-4 py-3">
+                <Loader2Icon className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            </div>
+          )}
           {messages.map((message, index) => (
             <div
               key={index}
@@ -140,7 +158,7 @@ export default function ChatPage() {
               )}
             </div>
           ))}
-          {isLoading && (
+          {isSending && (
             <div className="flex items-start gap-3 justify-start">
               <Avatar className="h-8 w-8 border">
                  <AvatarFallback><BotIcon className="h-5 w-5 text-primary" /></AvatarFallback>
@@ -156,15 +174,15 @@ export default function ChatPage() {
           <form onSubmit={handleSendMessage} className="flex items-center gap-2 sm:gap-4">
             <Input
               type="text"
-              placeholder="Ask about your journal, reminders, or for advice..."
+              placeholder={!user || isLoading ? "Loading chat..." : "Ask about your journal, reminders, or for advice..."}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               className="flex-1 text-base sm:text-sm"
-              disabled={isLoading}
+              disabled={isSending || !user || isLoading}
               autoFocus
             />
-            <Button type="submit" size="icon" disabled={isLoading || !inputValue.trim()} aria-label="Send message">
-              {isLoading ? (
+            <Button type="submit" size="icon" disabled={isSending || !inputValue.trim() || !user || isLoading} aria-label="Send message">
+              {isSending ? (
                 <Loader2Icon className="h-5 w-5 animate-spin" />
               ) : (
                 <SendIcon className="h-5 w-5" />
